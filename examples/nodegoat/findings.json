@@ -1,0 +1,332 @@
+{
+  "version": 1,
+  "target": {
+    "name": "NodeGoat",
+    "source_ref": "c5cb68a"
+  },
+  "coverage": [
+    {
+      "unit": "u01-http-injection",
+      "status": "hunted",
+      "checked": [
+        "contributions eval",
+        "allocations $where",
+        "login operator injection (dismissed: strict === password check)",
+        "no child_process in scope"
+      ]
+    },
+    {
+      "unit": "u02-http-authz",
+      "status": "hunted",
+      "checked": [
+        "allocations userId",
+        "benefits admin guard",
+        "profile/signup field allowlists"
+      ]
+    },
+    {
+      "unit": "u03-http-ssrf-redirect",
+      "status": "skipped",
+      "note": "seen in /research and /learn but not hunted in this test run"
+    }
+  ],
+  "findings": [
+    {
+      "id": "ssjs-eval-contributions",
+      "verdict": "confirmed",
+      "title": "Server-side JavaScript injection via eval() in POST /contributions",
+      "summary": "preTax, afterTax and roth from the request body are passed straight to eval(), so any logged-in user (and accounts are open to self-signup) can execute arbitrary JavaScript in the Node.js server process.",
+      "severity": "critical",
+      "cwe": "CWE-95",
+      "boundary": {
+        "attacker": "anonymous visitor who self-registers via POST /signup, then any logged-in user",
+        "asset": "code execution in the Node.js server process (filesystem, env, DB connection)"
+      },
+      "locations": [
+        {
+          "role": "entrypoint",
+          "file": "app/routes/index.js",
+          "line": 52,
+          "quote": "app.post(\"/contributions\", isLoggedIn, contributionsHandler.handleContributionsUpdate);",
+          "note": "only isLoggedIn guards the route"
+        },
+        {
+          "role": "evidence",
+          "file": "app/routes/index.js",
+          "line": 38,
+          "quote": "app.post(\"/signup\", sessionHandler.handleSignup);",
+          "note": "open self-registration means the login requirement is no real barrier"
+        },
+        {
+          "role": "control",
+          "file": "app/routes/session.js",
+          "line": 36,
+          "quote": "this.isLoggedInMiddleware = (req, res, next) => {\n        if (req.session.userId) {\n            return next();",
+          "note": "only checks that a session userId exists; no role or ownership check"
+        },
+        {
+          "role": "evidence",
+          "file": "app/routes/session.js",
+          "line": 235,
+          "quote": "req.session.userId = user._id;",
+          "note": "a fresh signup is immediately logged in"
+        },
+        {
+          "role": "sink",
+          "file": "app/routes/contributions.js",
+          "line": 32,
+          "quote": "const preTax = eval(req.body.preTax);"
+        },
+        {
+          "role": "sink",
+          "file": "app/routes/contributions.js",
+          "line": 33,
+          "quote": "const afterTax = eval(req.body.afterTax);"
+        },
+        {
+          "role": "sink",
+          "file": "app/routes/contributions.js",
+          "line": 34,
+          "quote": "const roth = eval(req.body.roth);"
+        },
+        {
+          "role": "control",
+          "file": "app/routes/contributions.js",
+          "line": 47,
+          "quote": "const validations = [isNaN(preTax), isNaN(afterTax), isNaN(roth), preTax < 0, afterTax < 0, roth < 0];",
+          "note": "validation runs only after eval() has already executed the input; not an effective control"
+        },
+        {
+          "role": "evidence",
+          "file": "server.js",
+          "line": 72,
+          "quote": "app.use(bodyParser.urlencoded({",
+          "note": "urlencoded body (extended: false) delivers the fields as raw strings to eval; no schema validation or CSRF middleware is active (csrf block at server.js:105-114 is commented out)"
+        }
+      ],
+      "remediation": "Replace eval() with numeric parsing, e.g. parseInt(req.body.preTax, 10), and reject non-integers before use.",
+      "unit": "u01-http-injection"
+    },
+    {
+      "id": "nosqli-where-allocations-threshold",
+      "verdict": "confirmed",
+      "title": "NoSQL $where injection via threshold query parameter on GET /allocations/:userId",
+      "summary": "The threshold query parameter is interpolated inside a quoted string in a MongoDB $where JavaScript expression, so any logged-in user (sign-up is open) can rewrite the predicate, e.g. threshold=' || '1'=='1 makes it always true and returns every user's allocation percentages and names in one request, and a looping payload (0';while(true){}') ties up MongoDB JavaScript execution. Server-side JS in MongoDB cannot reach other collections, so the data exposed is the same low-sensitivity allocation data as the IDOR, plus a database availability impact.",
+      "severity": "medium",
+      "cwe": "CWE-943",
+      "boundary": {
+        "attacker": "any logged-in user; accounts are open to self-registration via POST /signup, so effectively unauthenticated",
+        "asset": "all users' allocation records with userName/firstName/lastName; MongoDB availability via long-running $where"
+      },
+      "locations": [
+        {
+          "role": "entrypoint",
+          "file": "app/routes/index.js",
+          "line": 63,
+          "quote": "app.get(\"/allocations/:userId\", isLoggedIn, allocationsHandler.displayAllocations);"
+        },
+        {
+          "role": "propagation",
+          "file": "app/routes/allocations.js",
+          "line": 19,
+          "quote": "const {\n            threshold\n        } = req.query;",
+          "note": "threshold read from query string with no validation"
+        },
+        {
+          "role": "propagation",
+          "file": "app/routes/allocations.js",
+          "line": 23,
+          "quote": "allocationsDAO.getByUserIdAndThreshold(userId, threshold, (err, allocations) => {",
+          "note": "threshold comes from req.query unvalidated"
+        },
+        {
+          "role": "sink",
+          "file": "app/data/allocations-dao.js",
+          "line": 78,
+          "quote": "$where: `this.userId == ${parsedUserId} && this.stocks > '${threshold}'`"
+        },
+        {
+          "role": "propagation",
+          "file": "app/data/allocations-dao.js",
+          "line": 86,
+          "quote": "allocationsCol.find(searchCriteria()).toArray((err, allocations) => {"
+        },
+        {
+          "role": "evidence",
+          "file": "app/data/allocations-dao.js",
+          "line": 70,
+          "quote": "const parsedThreshold = parseInt(threshold, 10);",
+          "note": "the parseInt/range-check fix exists only inside a comment block (lines 63-76) and is not active"
+        },
+        {
+          "role": "evidence",
+          "file": "docker-compose.yml",
+          "line": 14,
+          "quote": "image: mongo:4.4",
+          "note": "bundled MongoDB 4.4 started without --noscripting, so $where JavaScript is enabled"
+        },
+        {
+          "role": "evidence",
+          "file": "app/routes/index.js",
+          "line": 38,
+          "quote": "app.post(\"/signup\", sessionHandler.handleSignup);",
+          "note": "open self-registration; signup handler sets req.session.userId (session.js:235)"
+        }
+      ],
+      "remediation": "Do not build $where strings; parse threshold with parseInt, range-check it, and query with {userId: parsedUserId, stocks: {$gt: parsedThreshold}}.",
+      "unit": "u01-http-injection"
+    },
+    {
+      "id": "idor-allocations-userid",
+      "verdict": "confirmed",
+      "title": "IDOR: GET /allocations/:userId returns any user's allocations",
+      "summary": "The handler takes userId from the URL path instead of the session and performs no ownership check, so any logged-in user can view another user's portfolio allocations and name by changing the path parameter. Severity is medium rather than high because the exposure is read-only and limited to allocation percentages and names; user ids are small sequential integers, so enumeration is trivial.",
+      "severity": "medium",
+      "cwe": "CWE-639",
+      "boundary": {
+        "attacker": "any logged-in user; accounts are open to self-registration via POST /signup, so effectively unauthenticated",
+        "asset": "other users' allocation percentages (stocks/funds/bonds) plus userName, firstName, lastName"
+      },
+      "locations": [
+        {
+          "role": "entrypoint",
+          "file": "app/routes/index.js",
+          "line": 63,
+          "quote": "app.get(\"/allocations/:userId\", isLoggedIn, allocationsHandler.displayAllocations);"
+        },
+        {
+          "role": "propagation",
+          "file": "app/routes/allocations.js",
+          "line": 16,
+          "quote": "const {\n            userId\n        } = req.params;",
+          "end_line": 18,
+          "note": "userId taken from URL, not req.session"
+        },
+        {
+          "role": "sink",
+          "file": "app/data/allocations-dao.js",
+          "line": 81,
+          "quote": "return {\n                userId: parsedUserId\n            };"
+        },
+        {
+          "role": "sink",
+          "file": "app/data/allocations-dao.js",
+          "line": 94,
+          "quote": "userDAO.getUserById(alloc.userId, (err, user) => {"
+        },
+        {
+          "role": "control",
+          "file": "app/routes/session.js",
+          "line": 36,
+          "quote": "this.isLoggedInMiddleware = (req, res, next) => {\n        if (req.session.userId) {\n            return next();",
+          "note": "only checks that a session userId exists; no role or ownership check"
+        },
+        {
+          "role": "evidence",
+          "file": "app/routes/index.js",
+          "line": 38,
+          "quote": "app.post(\"/signup\", sessionHandler.handleSignup);",
+          "note": "open self-registration; signup handler sets req.session.userId (session.js:235)"
+        },
+        {
+          "role": "evidence",
+          "file": "app/routes/allocations.js",
+          "line": 13,
+          "quote": "// Fix for A4 Insecure DOR -  take user id from session instead of from URL param",
+          "note": "the session-based fix is commented out"
+        },
+        {
+          "role": "evidence",
+          "file": "app/data/user-dao.js",
+          "line": 38,
+          "quote": "this.getNextSequence(\"userId\", (err, id) => {",
+          "note": "user ids are sequential integers, so other users' ids are guessable"
+        }
+      ],
+      "remediation": "Use req.session.userId (or compare req.params.userId to it and return 403 on mismatch).",
+      "unit": "u02-http-authz"
+    },
+    {
+      "id": "missing-admin-authz-benefits",
+      "verdict": "confirmed",
+      "title": "Missing admin authorization on GET/POST /benefits",
+      "summary": "The benefits routes are guarded only by isLoggedIn although an isAdmin middleware exists, so any user can list all non-admin users and change any user's benefitStartDate by supplying an arbitrary userId in the POST body.",
+      "severity": "high",
+      "cwe": "CWE-285",
+      "boundary": {
+        "attacker": "any logged-in non-admin user; accounts are open to self-registration via POST /signup, so effectively unauthenticated",
+        "asset": "all non-admin users' benefitStartDate (write) and their ids, first and last names (read)"
+      },
+      "locations": [
+        {
+          "role": "entrypoint",
+          "file": "app/routes/index.js",
+          "line": 55,
+          "quote": "app.get(\"/benefits\", isLoggedIn, benefitsHandler.displayBenefits);"
+        },
+        {
+          "role": "entrypoint",
+          "file": "app/routes/index.js",
+          "line": 56,
+          "quote": "app.post(\"/benefits\", isLoggedIn, benefitsHandler.updateBenefits);"
+        },
+        {
+          "role": "control",
+          "file": "app/routes/index.js",
+          "line": 27,
+          "quote": "const isAdmin = sessionHandler.isAdminUserMiddleware;",
+          "note": "admin guard exists but is not applied to these routes"
+        },
+        {
+          "role": "propagation",
+          "file": "app/routes/benefits.js",
+          "line": 35,
+          "quote": "benefitsDAO.updateBenefits(userId, benefitStartDate, (error) => {",
+          "note": "userId comes from req.body"
+        },
+        {
+          "role": "sink",
+          "file": "app/data/benefits-dao.js",
+          "line": 24,
+          "quote": "usersCol.update({\n                _id: parseInt(userId)\n            }, {"
+        },
+        {
+          "role": "sink",
+          "file": "app/data/benefits-dao.js",
+          "line": 16,
+          "quote": "usersCol.find({\n            \"isAdmin\": {\n                $ne: true\n            }\n        })"
+        },
+        {
+          "role": "control",
+          "file": "app/routes/session.js",
+          "line": 36,
+          "quote": "this.isLoggedInMiddleware = (req, res, next) => {\n        if (req.session.userId) {\n            return next();",
+          "note": "only checks that a session userId exists; no role or ownership check"
+        },
+        {
+          "role": "control",
+          "file": "app/routes/session.js",
+          "line": 25,
+          "quote": "this.isAdminUserMiddleware = (req, res, next) => {",
+          "note": "a working admin check (user.isAdmin from DB) exists but is not wired to /benefits"
+        },
+        {
+          "role": "evidence",
+          "file": "app/routes/benefits.js",
+          "line": 30,
+          "quote": "const {\n            userId,\n            benefitStartDate\n        } = req.body;",
+          "note": "target userId and new date are taken from the request body with no ownership or role check"
+        },
+        {
+          "role": "evidence",
+          "file": "app/routes/index.js",
+          "line": 38,
+          "quote": "app.post(\"/signup\", sessionHandler.handleSignup);",
+          "note": "open self-registration; signup handler sets req.session.userId (session.js:235)"
+        }
+      ],
+      "remediation": "Add isAdmin to both routes: app.get(\"/benefits\", isLoggedIn, isAdmin, ...) and app.post(\"/benefits\", isLoggedIn, isAdmin, ...) (the fix is already present as a comment at app/routes/index.js:57-60).",
+      "unit": "u02-http-authz"
+    }
+  ]
+}
