@@ -166,14 +166,10 @@ function sourceRefWarnings(doc, target) {
   if (typeof ref !== "string" || !/^[0-9a-fA-F]{7,40}$/.test(ref))
     return [`source_ref ${JSON.stringify(ref)} is not a 7-40 character commit hash, so it was not checked`];
   const gitPath = findGit();
-  const top = gitPath && git(gitPath, target, ["rev-parse", "--show-toplevel"]);
-  let isRoot = false;
-  try {
-    isRoot = Boolean(top) && fs.realpathSync(top) === fs.realpathSync(target);
-  } catch {
-    isRoot = false;
-  }
-  const head = isRoot && git(gitPath, target, ["rev-parse", "HEAD"]);
+  // --show-prefix is empty exactly when the target is the top of a work tree. Asking git
+  // avoids comparing paths, which differ in form on Windows (slashes, 8.3 short names).
+  const prefix = gitPath ? git(gitPath, target, ["rev-parse", "--show-prefix"]) : null;
+  const head = prefix === "" ? git(gitPath, target, ["rev-parse", "HEAD"]) : null;
   if (!head)
     return [`findings record source_ref ${ref}, but the target is not the root of a git checkout (or git is unavailable), so the ref was not checked`];
   const out = [];
