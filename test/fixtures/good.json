@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "target": {
+    "name": "vulnapp"
+  },
+  "coverage": [
+    {
+      "unit": "u01-http-injection",
+      "status": "hunted",
+      "checked": [
+        "GET /users",
+        "GET /files/:name"
+      ]
+    },
+    {
+      "unit": "u02-http-authz",
+      "status": "hunted",
+      "checked": [
+        "all routes"
+      ]
+    },
+    {
+      "unit": "u03-deps",
+      "status": "skipped",
+      "note": "no lockfile in repo"
+    }
+  ],
+  "findings": [
+    {
+      "id": "sqli-users-name",
+      "verdict": "confirmed",
+      "title": "SQL injection in GET /users via the name query parameter",
+      "summary": "The name query parameter is concatenated into a SQL string and executed, so an unauthenticated caller can read every user's email.",
+      "severity": "critical",
+      "cwe": "CWE-89",
+      "boundary": {
+        "attacker": "unauthenticated HTTP client",
+        "asset": "users table (all emails)"
+      },
+      "locations": [
+        {
+          "role": "entrypoint",
+          "file": "src/server.js",
+          "line": 9,
+          "quote": "const name = req.query.name;",
+          "note": "attacker-controlled"
+        },
+        {
+          "role": "sink",
+          "file": "src/server.js",
+          "line": 10,
+          "quote": "db.query(\"SELECT id, email FROM users WHERE name = '\" + name + \"'\")"
+        },
+        {
+          "role": "propagation",
+          "file": "src/db.js",
+          "line": 5,
+          "end_line": 8,
+          "quote": "async function query(sql, params) {\n  const result = await pool.query(sql, params);\n  return result.rows;\n}"
+        }
+      ],
+      "remediation": "Pass name as a bound parameter: db.query('SELECT id, email FROM users WHERE name = $1', [name]).",
+      "unit": "u01-http-injection"
+    },
+    {
+      "id": "path-traversal-files",
+      "verdict": "needs_validation",
+      "title": "Possible path traversal in GET /files/:name",
+      "summary": "req.params.name is joined to the uploads directory without containment, but whether encoded slashes reach the handler depends on the deployed router and proxy.",
+      "cwe": "CWE-22",
+      "blocker": "Whether the production proxy decodes %2F in path segments before routing.",
+      "locations": [
+        {
+          "role": "sink",
+          "file": "src/server.js",
+          "line": 15,
+          "quote": "path.join(UPLOADS, req.params.name)"
+        }
+      ],
+      "unit": "u01-http-injection"
+    },
+    {
+      "id": "health-info-leak",
+      "verdict": "rejected",
+      "title": "Health endpoint leaks internals",
+      "summary": "Candidate claimed /health discloses internal state.",
+      "reason": "It returns a constant {ok: true}.",
+      "locations": [
+        {
+          "role": "sink",
+          "file": "src/server.js",
+          "line": 20,
+          "quote": "res.json({ ok: true });"
+        }
+      ],
+      "unit": "u02-http-authz"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "verdict": "confirmed",
+    "fingerprint": "sqli-users",
+    "title": "SQL injection in /users",
+    "severity": { "overall_severity": "critical" },
+    "trace": [
+      { "kind": "entrypoint", "file": "src/server.js", "line": 9, "scope": "GET /users", "description": "name from query" },
+      { "kind": "sink", "file": "src/server.js", "line": 10, "scope": "GET /users", "description": "string-built SQL" }
+    ],
+    "evidence": [ { "file": "src/db.js", "line": 6, "description": "executes raw sql" } ]
+  },
+  {
+    "verdict": "needs_validation",
+    "fingerprint": "ghost",
+    "title": "Cites a file that does not exist",
+    "trace": [ { "kind": "sink", "file": "src/admin/routes.js", "line": 42, "scope": "x", "description": "y" } ],
+    "evidence": []
+  }
+]

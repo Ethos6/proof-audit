@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "findings": [
+    { "id": "ok-one", "verdict": "needs_validation", "title": "Real citation", "summary": "s", "blocker": "b",
+      "locations": [ { "role": "sink", "file": "src/server.js", "line": 10, "quote": "WHERE name = '\" + name" } ] },
+    { "id": "hallucinated", "verdict": "confirmed", "title": "Invented eval sink", "summary": "s", "severity": "high",
+      "boundary": { "attacker": "a", "asset": "b" }, "remediation": "r",
+      "locations": [
+        { "role": "entrypoint", "file": "src/server.js", "line": 9, "quote": "const name = req.query.name;" },
+        { "role": "sink", "file": "src/server.js", "line": 11, "quote": "eval(req.body.code)" } ] },
+    { "id": "drifted", "verdict": "needs_validation", "title": "Right code, wrong line", "summary": "s", "blocker": "b",
+      "locations": [ { "role": "sink", "file": "src/server.js", "line": 3, "quote": "res.sendFile(file);" } ] },
+    { "id": "missing-file", "verdict": "needs_validation", "title": "File does not exist", "summary": "s", "blocker": "b",
+      "locations": [ { "role": "sink", "file": "src/auth.js", "line": 1, "quote": "function login(user)" } ] },
+    { "id": "escape", "verdict": "needs_validation", "title": "Path escape", "summary": "s", "blocker": "b",
+      "locations": [ { "role": "sink", "file": "../../../package.json", "line": 1, "quote": "\"name\": \"proof-audit\"" } ] },
+    { "id": "too-short", "verdict": "needs_validation", "title": "Trivial quote", "summary": "s", "blocker": "b",
+      "locations": [ { "role": "sink", "file": "src/server.js", "line": 12, "quote": "});" } ] },
+    { "id": "out-of-range", "verdict": "needs_validation", "title": "Line past EOF", "summary": "s", "blocker": "b",
+      "locations": [ { "role": "sink", "file": "src/db.js", "line": 400, "quote": "module.exports = { query };" } ] },
+    { "id": "ambiguous", "verdict": "needs_validation", "title": "Quote repeated", "summary": "s", "blocker": "b",
+      "locations": [ { "role": "sink", "file": "src/server.js", "line": 1, "quote": "app.get(\"/" } ] },
+    { "id": "binary", "verdict": "needs_validation", "title": "Binary file", "summary": "s", "blocker": "b",
+      "locations": [ { "role": "evidence", "file": "logo.gif", "line": 1, "quote": "GIF89a binary" } ] },
+    { "id": "bad-rejected", "verdict": "rejected", "title": "Rejected with stale cite", "summary": "s", "reason": "r",
+      "locations": [ { "role": "sink", "file": "src/nope.js", "line": 1, "quote": "does not matter" } ] }
+  ]
+}
