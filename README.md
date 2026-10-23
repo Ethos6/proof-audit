@@ -1,5 +1,7 @@
 # proof-audit
 
+![proof-audit logo](proof-audit-mark.svg)
+
 A security-audit skill for coding agents in which **every finding has to prove its citations**.
 
 AI security reviews have a known failure mode: findings that cite a file that doesn't exist, quote code that isn't there, or point at the wrong line. They read convincingly, and someone has to waste time disproving them. proof-audit makes every cited location carry a verbatim quote of the source, and a zero-dependency checker verifies each quote against the real files **before** a finding can reach the report.
@@ -31,6 +33,18 @@ The skill (`skills/proof-audit/SKILL.md`) runs a structured audit:
 6. **Report**: `proof-audit report` renders Markdown from the verified records only, with quoted source under each finding, an *Excluded* list for anything whose citations failed, and a coverage table built from the hunt plan.
 
 The safety rules are strict: source reading first, no contact with live systems, and target code runs only in a network-less sandbox, if at all.
+
+```mermaid
+flowchart TD
+    A[Map entry points and trust boundaries] --> B[Hunt for candidate issues]
+    B --> C[Attach exact source citations]
+    C --> D[Verify quotes and locations]
+    D --> E{Citation gate}
+    E -->|Pass| F[Independent adversarial review]
+    E -->|Fail| G[Correct evidence or reject]
+    F --> H[Strict schema and verifier checks]
+    H --> I[Report with evidence]
+```
 
 ## What the checker verifies
 
